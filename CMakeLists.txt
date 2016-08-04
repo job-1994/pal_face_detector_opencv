@@ -7,7 +7,16 @@ find_package(catkin REQUIRED COMPONENTS
   pal_detection_msgs
   sensor_msgs
   roscpp
+####################/////////////
+  actionlib
+  geometry_msgs
+  control_msgs
+  tf
+####################/////////////
 )
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+
 
 ##########
 # Flags ##
@@ -23,10 +32,11 @@ find_package(catkin REQUIRED COMPONENTS
 
 
 catkin_package(
-  CATKIN_DEPENDS sensor_msgs pal_detection_msgs
+  CATKIN_DEPENDS sensor_msgs pal_detection_msgs tf
 )
 
-include_directories(${catkin_INCLUDE_DIRS})
+include_directories(SYSTEM
+${catkin_INCLUDE_DIRS})
 
 ###########
 ## Build ##
@@ -37,12 +47,26 @@ add_executable(pal_face_detector_opencv src/face_detector.cpp)
 target_link_libraries(pal_face_detector_opencv ${catkin_LIBRARIES})
 add_dependencies(pal_face_detector_opencv pal_detection_msgs_generate_messages_cpp)
 
+####################/////////////
+add_executable(head_action src/head_action.cpp)
+target_link_libraries(head_action
+  ${catkin_LIBRARIES})
+
+add_executable(transform_listener src/transform_listener.cpp)
+target_link_libraries(transform_listener
+  ${catkin_LIBRARIES})
+####################/////////////
+
 
 #############
 ## Install ##
 #############
 
 install(TARGETS pal_face_detector_opencv
+		####################/////////////
+		ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  		LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  		####################/////////////
         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
 install(DIRECTORY launch config 

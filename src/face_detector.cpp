@@ -31,8 +31,8 @@
  *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-
-/** \author Jordi Pages. */
+/** \author Jordi Pages.*/
+/** \author Job van Dieten <job.1994@gmail.com>. */
 
 // PAL headers
 #include <pal_detection_msgs/FaceDetections.h>
@@ -44,6 +44,9 @@
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/image_encodings.h>
 #include <ros/package.h>
+#include <geometry_msgs/PointStamped.h>
+#include <sensor_msgs/CameraInfo.h>
+
 
 // OpenCV headers
 #include <opencv2/objdetect/objdetect.hpp>
@@ -57,13 +60,7 @@
 #include <vector>
 #include <stdexcept>
 
-/**
- * @brief The FaceDetector class encapsulating an image subscriber and the OpenCV's cascade classifier
- *        for face detection
- *
- * @example rosrun face_detector_opencv face_detector image:=/stereo/right/image
- *
- */
+
 class FaceDetector
 {
 public:
@@ -89,13 +86,14 @@ protected:
 
   void publishDebugImage(const cv::Mat& img,
                          const std::vector<cv::Rect>& faces);
+  void pubData(double x_data, double y_data);
 
   cv::CascadeClassifier _faceClassifier;
 
   image_transport::ImageTransport _imageTransport;
   image_transport::Subscriber _imageSub;
 
-  ros::Publisher _pub;
+  ros::Publisher _pub, data_pub;
   image_transport::Publisher _imDebugPub;
   cv_bridge::CvImage _cvImg;
 
@@ -119,14 +117,15 @@ FaceDetector::FaceDetector(ros::NodeHandle& nh,
   if ( !_faceClassifier.load(pathToClassifier.c_str()) )
     throw std::runtime_error("Error loading classifier");
 
-  image_transport::TransportHints transportHint("raw");
+  image_transport::TransportHints transportHint("compressed");
 
-  _imageSub = _imageTransport.subscribe("image", 1, &FaceDetector::imageCallback, this, transportHint);
+  _imageSub = _imageTransport.subscribe("/xtion/rgb/image_raw", 1, &FaceDetector::imageCallback, this, transportHint);
 
   ROS_INFO_STREAM("Subscribing to image topic: " << _imageSub.getTopic());
 
   _pub = _nh.advertise<pal_detection_msgs::FaceDetections>("faces", 1);
   _imDebugPub = _imageTransport.advertise("debug", 1);
+  data_pub = _nh.advertise<geometry_msgs::PointStamped>("data", 1);
 
   _nh.param<int>("processing_img_width", _imgProcessingSize.width, _imgProcessingSize.height);
   _nh.param<int>("processing_img_height", _imgProcessingSize.height, _imgProcessingSize.height);
@@ -175,6 +174,8 @@ void FaceDetector::publishDebugImage(const cv::Mat& img,
   BOOST_FOREACH(const cv::Rect& face, faces)
   {
     cv::rectangle(imgDebug, face, CV_RGB(0,255,0), 1);
+    cv::circle(imgDebug, cv::Point(face.x + face.width/2, face.y + face.height/2), 10, CV_RGB(255,0,0));
+    this->pubData(face.x + face.width/2, face.y + face.height/2);
   }
 
   if ( imgDebug.channels() == 3 && imgDebug.depth() == CV_8U )
@@ -192,6 +193,35 @@ void FaceDetector::publishDebugImage(const cv::Mat& img,
   _imDebugPub.publish(imgMsg);
 }
 
+void FaceDetector::pubData(double x_data, double y_data)
+{
+    ROS_INFO_STREAM("Pixel selected (" << x_data*2 << ", " << y_data*2 << ") ");
+
+  cv::Mat cameraIntrinsics;
+  sensor_msgs::CameraInfoConstPtr msg_info = ros::topic::waitForMessage
+      <sensor_msgs::CameraInfo>("/xtion/rgb/camera_info", ros::Duration(10.0));
+  if(msg_info.use_count() > 0)
+  {
+    cameraIntrinsics = cv::Mat::zeros(3,3,CV_64F);
+    cameraIntrinsics.at<double>(0, 0) = msg_info->K[0]; //fx
+    cameraIntrinsics.at<double>(1, 1) = msg_info->K[4]; //fy
+    cameraIntrinsics.at<double>(0, 2) = msg_info->K[2]; //cx
+    cameraIntrinsics.at<double>(1, 2) = msg_info->K[5]; //cy
+    cameraIntrinsics.at<double>(2, 2) = 1;
+  }
+  double x_data_final = ( x_data*2  - cameraIntrinsics.at<double>(0,2) )/ cameraIntrinsics.at<double>(0,0);
+  double y_data_final = ( y_data*2  - cameraIntrinsics.at<double>(1,2) )/ cameraIntrinsics.at<double>(1,1);
+  double z_data_final = 1.0; //define an arbitrary distance
+  ROS_INFO_STREAM("Pixel Transformed (" << x_data_final << ", " << y_data_final << ")");
+
+  geometry_msgs::PointStamped msg;
+  msg.header.frame_id = "/xtion_rgb_optical_frame";
+  msg.point.x = x_data_final * z_data_final;
+  msg.point.y = y_data_final * z_data_final;
+  msg.point.z = z_data_final;
+  data_pub.publish(msg);
+}
+
 void FaceDetector::imageCallback(const sensor_msgs::ImageConstPtr& msg)
 {
   if ( _pub.getNumSubscribers() > 0 || _imDebugPub.getNumSubscribers() > 0 )
@@ -202,7 +232,8 @@ void FaceDetector::imageCallback(const sensor_msgs::ImageConstPtr& msg)
     cv::Mat img;
 
     cv_bridge::CvImageConstPtr cvImgPtr;
-    cvImgPtr = cv_bridge::toCvShare(msg);
+    cvImgPtr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+
     cvImgPtr->image.copyTo(img);
 
     _originalImageSize = img.size();
@@ -238,7 +269,6 @@ void FaceDetector::imageCallback(const sensor_msgs::ImageConstPtr& msg)
     if ( _imDebugPub.getNumSubscribers() > 0 )
       publishDebugImage(imgScaled, detections);
 
-    //showDetections(img, detections);
   }
 }
 
@@ -294,13 +324,13 @@ int main(int argc, char **argv)
 
   ROS_INFO("Spinning to serve callbacks ...");
 
-  ros::Rate rate(frequency);
-  while ( ros::ok() )
-  {
-    ros::spinOnce();
-    rate.sleep();
-  }
-
+  // ros::Rate rate(frequency);
+  // while ( ros::ok() )
+  // {
+  //   ros::spinOnce();
+  //   // rate.sleep();
+  // }
+ros::spin();
   return 0;
 }
 

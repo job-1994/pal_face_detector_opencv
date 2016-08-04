@@ -15,6 +15,11 @@
     </rosparam>
   </node>
 
+  <node name="head_action" pkg="pal_face_detector_opencv" type="head_action" />
+
+  <!-- </node> -->
+
+
   <node name="image_view_face" pkg="image_view" type="image_view">
     <remap from="image" to="pal_face/debug" />
     <remap from="image_transport" to="compressed" />
