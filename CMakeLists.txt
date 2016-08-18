@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   control_msgs
   tf
+  message_generation
 ####################/////////////
 )
 
@@ -30,13 +31,22 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
 ## catkin specific configuration ##
 ###################################
 
+add_message_files(
+  FILES
+  cvRect.msg
+)
 
+generate_messages(
+  DEPENDENCIES
+)
 catkin_package(
-  CATKIN_DEPENDS sensor_msgs pal_detection_msgs tf
+  CATKIN_DEPENDS sensor_msgs pal_detection_msgs tf message_generation
 )
 
 include_directories(SYSTEM
 ${catkin_INCLUDE_DIRS})
+
+
 
 ###########
 ## Build ##
@@ -45,16 +55,25 @@ ${catkin_INCLUDE_DIRS})
 ## Declare a cpp executable
 add_executable(pal_face_detector_opencv src/face_detector.cpp)
 target_link_libraries(pal_face_detector_opencv ${catkin_LIBRARIES})
-add_dependencies(pal_face_detector_opencv pal_detection_msgs_generate_messages_cpp)
+add_dependencies(pal_face_detector_opencv pal_detection_msgs_generate_messages_cpp ${PROJECT_NAME}_generate_messages_cpp)
 
 ####################/////////////
 add_executable(head_action src/head_action.cpp)
 target_link_libraries(head_action
   ${catkin_LIBRARIES})
+add_executable(action_server_head src/action_server_head.cpp)
+target_link_libraries(action_server_head
+  ${catkin_LIBRARIES})
 
 add_executable(transform_listener src/transform_listener.cpp)
 target_link_libraries(transform_listener
   ${catkin_LIBRARIES})
+
+add_executable(face_depth src/face_depth.cpp)
+target_link_libraries(face_depth
+  ${catkin_LIBRARIES})
+  add_dependencies(face_depth ${PROJECT_NAME}_generate_messages_cpp)
+
 ####################/////////////
 
 

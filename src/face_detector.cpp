@@ -46,6 +46,7 @@
 #include <ros/package.h>
 #include <geometry_msgs/PointStamped.h>
 #include <sensor_msgs/CameraInfo.h>
+#include <pal_face_detector_opencv/cvRect.h>
 
 
 // OpenCV headers
@@ -86,14 +87,16 @@ protected:
 
   void publishDebugImage(const cv::Mat& img,
                          const std::vector<cv::Rect>& faces);
-  void pubData(double x_data, double y_data);
+  void pubHeadGoalData(double x_data, double y_data);
+
+  void pubCvRectExtractionData(cv::Rect re);
 
   cv::CascadeClassifier _faceClassifier;
 
   image_transport::ImageTransport _imageTransport;
   image_transport::Subscriber _imageSub;
 
-  ros::Publisher _pub, data_pub;
+  ros::Publisher _pub, head_goal_pub, rect_pub;
   image_transport::Publisher _imDebugPub;
   cv_bridge::CvImage _cvImg;
 
@@ -122,10 +125,10 @@ FaceDetector::FaceDetector(ros::NodeHandle& nh,
   _imageSub = _imageTransport.subscribe("/xtion/rgb/image_raw", 1, &FaceDetector::imageCallback, this, transportHint);
 
   ROS_INFO_STREAM("Subscribing to image topic: " << _imageSub.getTopic());
-
+  rect_pub  = _nh.advertise<pal_face_detector_opencv::cvRect>("cv_rect_data", 1);
   _pub = _nh.advertise<pal_detection_msgs::FaceDetections>("faces", 1);
   _imDebugPub = _imageTransport.advertise("debug", 1);
-  data_pub = _nh.advertise<geometry_msgs::PointStamped>("data", 1);
+  head_goal_pub = _nh.advertise<geometry_msgs::PointStamped>("data", 1);
 
   _nh.param<int>("processing_img_width", _imgProcessingSize.width, _imgProcessingSize.height);
   _nh.param<int>("processing_img_height", _imgProcessingSize.height, _imgProcessingSize.height);
@@ -138,6 +141,17 @@ FaceDetector::~FaceDetector()
   cv::destroyWindow("face detections");
 }
 
+
+void FaceDetector::pubCvRectExtractionData(cv::Rect re)
+{
+    pal_face_detector_opencv::cvRect re_data;
+    re_data.x =  re.x;
+    re_data.y = re.y;
+    re_data.height = re.height;
+    re_data.width = re.width;
+    rect_pub.publish(re_data);
+}
+
 void FaceDetector::publishDetections(const std::vector<cv::Rect>& faces)
 {
   pal_detection_msgs::FaceDetections msg;
@@ -145,7 +159,6 @@ void FaceDetector::publishDetections(const std::vector<cv::Rect>& faces)
 
   msg.header.stamp = _imgTimeStamp;
   msg.header.frame_id = _cameraFrameId;
-
   BOOST_FOREACH(const cv::Rect& face, faces)
   {
     //publish the detection according to the original image size
@@ -171,11 +184,14 @@ void FaceDetector::publishDebugImage(const cv::Mat& img,
                                      const std::vector<cv::Rect>& faces)
 {
   cv::Mat imgDebug = img.clone();
+
+
+
   BOOST_FOREACH(const cv::Rect& face, faces)
   {
     cv::rectangle(imgDebug, face, CV_RGB(0,255,0), 1);
     cv::circle(imgDebug, cv::Point(face.x + face.width/2, face.y + face.height/2), 10, CV_RGB(255,0,0));
-    this->pubData(face.x + face.width/2, face.y + face.height/2);
+    this->pubHeadGoalData(face.x + face.width/2, face.y + face.height/2);
   }
 
   if ( imgDebug.channels() == 3 && imgDebug.depth() == CV_8U )
@@ -193,9 +209,9 @@ void FaceDetector::publishDebugImage(const cv::Mat& img,
   _imDebugPub.publish(imgMsg);
 }
 
-void FaceDetector::pubData(double x_data, double y_data)
+void FaceDetector::pubHeadGoalData(double x_data, double y_data)
 {
-    ROS_INFO_STREAM("Pixel selected (" << x_data*2 << ", " << y_data*2 << ") ");
+//    ROS_INFO_STREAM("Pixel selected (" << x_data*2 << ", " << y_data*2 << ") ");
 
   cv::Mat cameraIntrinsics;
   sensor_msgs::CameraInfoConstPtr msg_info = ros::topic::waitForMessage
@@ -212,18 +228,20 @@ void FaceDetector::pubData(double x_data, double y_data)
   double x_data_final = ( x_data*2  - cameraIntrinsics.at<double>(0,2) )/ cameraIntrinsics.at<double>(0,0);
   double y_data_final = ( y_data*2  - cameraIntrinsics.at<double>(1,2) )/ cameraIntrinsics.at<double>(1,1);
   double z_data_final = 1.0; //define an arbitrary distance
-  ROS_INFO_STREAM("Pixel Transformed (" << x_data_final << ", " << y_data_final << ")");
+//  ROS_INFO_STREAM("Pixel Transformed (" << x_data_final << ", " << y_data_final << ")");
 
   geometry_msgs::PointStamped msg;
   msg.header.frame_id = "/xtion_rgb_optical_frame";
   msg.point.x = x_data_final * z_data_final;
   msg.point.y = y_data_final * z_data_final;
   msg.point.z = z_data_final;
-  data_pub.publish(msg);
+  head_goal_pub.publish(msg);
 }
 
 void FaceDetector::imageCallback(const sensor_msgs::ImageConstPtr& msg)
 {
+//    ROS_INFO_STREAM("IMG height, width" << msg->height << ", " << msg->width);
+
   if ( _pub.getNumSubscribers() > 0 || _imDebugPub.getNumSubscribers() > 0 )
   {
     _imgTimeStamp = msg->header.stamp;
@@ -257,9 +275,12 @@ void FaceDetector::imageCallback(const sensor_msgs::ImageConstPtr& msg)
     _maxFaceSize.height = _maxFaceSize.width;
 
     std::vector<cv::Rect> detections;
-
     detectFaces(imgScaled, detections);
-
+    if(detections.size()>0)
+    {
+        this->pubCvRectExtractionData(detections.front());
+   }
+//        ROS_INFO_STREAM("Called, Size: " << detections.size());
     if ( _pub.getNumSubscribers() > 0 &&
          (!detections.empty() || _verbosePublishing) )
     {
@@ -288,10 +309,7 @@ void FaceDetector::detectFaces(const cv::Mat& img,
                                    0, //CV_HAAR_DO_CANNY_PRUNING,
                                    _minFaceSize,
                                    _maxFaceSize);
-
-  //int64 stop = cvGetTickCount();
-
-  //ROS_INFO_STREAM("Elapsed time: " << (stop - start)/(cvGetTickFrequency()*1000.0) << " ms");
+  
 }
 
 int main(int argc, char **argv)

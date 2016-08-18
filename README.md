@@ -1,5 +1,9 @@
 
 
+NEED CUSTOM_SRV PACKAGE TO WORK
+
+
+
 pal_face_detector_opencv
 ========================
 

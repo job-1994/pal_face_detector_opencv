@@ -36,15 +36,15 @@ void HeadAction::dataCB(const geometry_msgs::PointStamped& msg)
 
 void HeadAction::createAction(geometry_msgs::PointStamped pointStamped)
 {
-	control_msgs::PointHeadGoal goal;
-	goal.pointing_frame = "/xtion_rgb_optical_frame";
-  goal.pointing_axis.x = 0.0;
-  goal.pointing_axis.y = 0.0;
-  goal.pointing_axis.z = 1.0;
-  goal.min_duration = ros::Duration(1.0);
-  goal.max_velocity = 0.25;
-  goal.target = pointStamped;
-  PointHeadActionClient->sendGoal(goal);
+      control_msgs::PointHeadGoal goal;
+      goal.pointing_frame = "/xtion_rgb_optical_frame";
+      goal.pointing_axis.x = 0.0;
+      goal.pointing_axis.y = 0.0;
+      goal.pointing_axis.z = 1.0;
+      goal.min_duration = ros::Duration(1.0);
+      goal.max_velocity = 0.25;
+      goal.target = pointStamped;
+      PointHeadActionClient->sendGoal(goal);
 }
 
 int main(int argc, char **argv)
